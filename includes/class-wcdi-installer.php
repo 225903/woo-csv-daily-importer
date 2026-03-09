@@ -61,5 +61,8 @@ class WCDI_Installer {
             'file_hash' => '',
             'last_processed_row' => 0,
         ]);
+        add_option('wcdi_notify_enabled', 1);
+        add_option('wcdi_notify_mode', 'failed_only');
+        add_option('wcdi_notify_email', get_option('admin_email'));
     }
 }

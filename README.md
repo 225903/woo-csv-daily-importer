@@ -13,6 +13,7 @@ A WordPress/WooCommerce plugin that imports product data from CSV daily.
 - Run/item logs in custom DB tables
 - File disaster-flow: `inbox -> processing -> archive/failed`
 - Rollback by `run_id` (delete created products, restore updated products)
+- Email notification to site admin/custom email (always or failed-only)
 
 ## Requirements
 
@@ -65,6 +66,14 @@ Plugin registers `wcdi_daily_import_event` once per day.
 
 - `{prefix}wcdi_runs`
 - `{prefix}wcdi_run_items`
+
+## Email Notification
+
+Configure in **WooCommerce -> CSV Daily Importer**:
+
+- Enable/disable notification
+- Mode: `failed_only` or `always`
+- Target email (default: WordPress `admin_email`)
 
 ## Rollback
 

@@ -215,6 +215,50 @@ class WCDI_Runner {
         ]);
 
         $wpdb->update($runsTable, $update, ['id' => $runId]);
+        self::send_notification($runId);
+    }
+
+    private static function send_notification(int $runId): void {
+        $enabled = (int) get_option('wcdi_notify_enabled', 1) === 1;
+        if (!$enabled) {
+            return;
+        }
+
+        global $wpdb;
+        $runsTable = $wpdb->prefix . 'wcdi_runs';
+        $run = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$runsTable} WHERE id = %d", $runId));
+        if (!$run) {
+            return;
+        }
+
+        $mode = (string) get_option('wcdi_notify_mode', 'failed_only');
+        $failedCount = (int) ($run->failed_count ?? 0);
+        if ($mode === 'failed_only' && $failedCount <= 0) {
+            return;
+        }
+
+        $to = sanitize_email((string) get_option('wcdi_notify_email', get_option('admin_email')));
+        if (!$to || !is_email($to)) {
+            return;
+        }
+
+        $subject = sprintf('[WCDI] Import Run #%d - %s', (int) $run->id, (string) $run->status);
+        $message = implode("\n", [
+            'Woo CSV Daily Importer run summary',
+            '--------------------------------',
+            'Run ID: ' . (int) $run->id,
+            'File: ' . (string) $run->file_name,
+            'Status: ' . (string) $run->status,
+            'Processed: ' . (int) $run->processed_rows,
+            'Success: ' . (int) $run->success_count,
+            'Failed: ' . (int) $run->failed_count,
+            'Skipped: ' . (int) $run->skipped_count,
+            'Started: ' . (string) $run->started_at,
+            'Finished: ' . (string) $run->finished_at,
+            'Notes: ' . (string) ($run->notes ?? ''),
+        ]);
+
+        wp_mail($to, $subject, $message);
     }
 
     private static function map_row(array $header, array $row): array {

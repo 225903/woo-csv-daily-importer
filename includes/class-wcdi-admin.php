@@ -39,6 +39,24 @@ class WCDI_Admin {
             'sanitize_callback' => static fn($v) => max(0, min(5, (int) $v)),
             'default' => 3,
         ]);
+
+        register_setting('wcdi_settings_group', 'wcdi_notify_enabled', [
+            'type' => 'integer',
+            'sanitize_callback' => static fn($v) => (int) !empty($v),
+            'default' => 1,
+        ]);
+
+        register_setting('wcdi_settings_group', 'wcdi_notify_mode', [
+            'type' => 'string',
+            'sanitize_callback' => static fn($v) => in_array($v, ['always', 'failed_only'], true) ? $v : 'failed_only',
+            'default' => 'failed_only',
+        ]);
+
+        register_setting('wcdi_settings_group', 'wcdi_notify_email', [
+            'type' => 'string',
+            'sanitize_callback' => 'sanitize_email',
+            'default' => get_option('admin_email'),
+        ]);
     }
 
     public static function render(): void {
@@ -81,6 +99,28 @@ class WCDI_Admin {
                     <tr>
                         <th scope="row"><label for="wcdi_retry_limit">Retry Limit</label></th>
                         <td><input type="number" id="wcdi_retry_limit" name="wcdi_retry_limit" value="<?php echo esc_attr((string) get_option('wcdi_retry_limit', 3)); ?>" min="0" max="5" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="wcdi_notify_enabled">Email Notify</label></th>
+                        <td>
+                            <label>
+                                <input type="checkbox" id="wcdi_notify_enabled" name="wcdi_notify_enabled" value="1" <?php checked((int) get_option('wcdi_notify_enabled', 1), 1); ?> />
+                                Enable email notifications
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="wcdi_notify_mode">Notify Mode</label></th>
+                        <td>
+                            <select id="wcdi_notify_mode" name="wcdi_notify_mode">
+                                <option value="failed_only" <?php selected((string) get_option('wcdi_notify_mode', 'failed_only'), 'failed_only'); ?>>Only when there are failures</option>
+                                <option value="always" <?php selected((string) get_option('wcdi_notify_mode', 'failed_only'), 'always'); ?>>Always after each run</option>
+                            </select>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="wcdi_notify_email">Notify Email</label></th>
+                        <td><input type="email" id="wcdi_notify_email" name="wcdi_notify_email" value="<?php echo esc_attr((string) get_option('wcdi_notify_email', get_option('admin_email'))); ?>" class="regular-text" /></td>
                     </tr>
                 </table>
                 <?php submit_button('Save Settings'); ?>

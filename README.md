@@ -34,26 +34,26 @@ Default path example:
 
 ## CSV Header
 
-Required columns:
+This plugin supports Woo-style headers (case-insensitive, spaces/underscores tolerated).
 
-- `sku`
-- `name`
-- `regular_price`
+Recommended columns:
 
-Optional columns:
+- `Type` (currently supports `simple`)
+- `SKU` (required)
+- `Name` (required)
+- `Published` (1/0/yes/no -> publish/draft)
+- `Regular price` (required)
+- `Images` (comma-separated URLs; first one used as featured image)
+- `Categories` (comma-separated; use `Parent > Child` for hierarchy)
 
-- `sale_price`
-- `stock_quantity`
-- `description`
-- `short_description`
-- `status` (`publish|draft|pending|private`)
+Also supported (optional): `sale_price`, `stock_quantity`, `description`, `short_description`, `status`.
 
 Example:
 
 ```csv
-sku,name,regular_price,sale_price,stock_quantity,description,short_description,status
-SKU-001,Demo Product A,99,79,10,"Long description","Short description",publish
-SKU-002,Demo Product B,59,,50,"Long description","Short description",draft
+Type,SKU,Name,Published,Regular price,Images,Categories
+simple,1590347139,Cartoon Style Personalized Statue For Musician,1,29,https://www.custom3dfigure.com/wp-content/uploads/2026/02/1590347139-cartoon_style_personalized_statue_for_musician.jpg,"Figure List, Occupations > Musician"
+simple,1590725433,Lifelike 3d Printed Doll For Chef,1,29,https://www.custom3dfigure.com/wp-content/uploads/2026/02/1590725433-lifelike_3d_printed_doll_for_chef.jpg,"Figure List, Occupations > Chef"
 ```
 
 ## Schedule
@@ -74,6 +74,7 @@ Configure in **WooCommerce -> CSV Daily Importer**:
 - Enable/disable notification
 - Mode: `failed_only` or `always`
 - Target email (default: WordPress `admin_email`)
+- On failures, email includes top 20 failed rows with reasons
 
 ## Rollback
 

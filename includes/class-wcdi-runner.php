@@ -243,7 +243,7 @@ class WCDI_Runner {
         }
 
         $subject = sprintf('[WCDI] Import Run #%d - %s', (int) $run->id, (string) $run->status);
-        $message = implode("\n", [
+        $lines = [
             'Woo CSV Daily Importer run summary',
             '--------------------------------',
             'Run ID: ' . (int) $run->id,
@@ -256,29 +256,142 @@ class WCDI_Runner {
             'Started: ' . (string) $run->started_at,
             'Finished: ' . (string) $run->finished_at,
             'Notes: ' . (string) ($run->notes ?? ''),
-        ]);
+        ];
 
-        wp_mail($to, $subject, $message);
+        if ((int) $run->failed_count > 0) {
+            $itemsTable = $wpdb->prefix . 'wcdi_run_items';
+            $failedItems = $wpdb->get_results($wpdb->prepare(
+                "SELECT row_number, sku, message FROM {$itemsTable} WHERE run_id = %d AND status = 'failed' ORDER BY id ASC LIMIT 20",
+                (int) $run->id
+            ));
+
+            $lines[] = '';
+            $lines[] = 'Failed items (top 20):';
+            foreach ($failedItems as $item) {
+                $lines[] = sprintf(
+                    '- row=%d sku=%s reason=%s',
+                    (int) ($item->row_number ?? 0),
+                    (string) ($item->sku ?? ''),
+                    (string) ($item->message ?? '')
+                );
+            }
+        }
+
+        wp_mail($to, $subject, implode("\n", $lines));
     }
 
     private static function map_row(array $header, array $row): array {
         $assoc = [];
         foreach ($header as $index => $column) {
-            $key = strtolower(trim((string) $column));
-            $assoc[$key] = isset($row[$index]) ? trim((string) $row[$index]) : '';
+            $normalized = self::normalize_header((string) $column);
+            $assoc[$normalized] = isset($row[$index]) ? trim((string) $row[$index]) : '';
         }
 
+        $publishedRaw = self::get_mapped_value($assoc, ['published', 'status']);
+        $status = self::normalize_status($publishedRaw);
+
         return [
-            'sku' => $assoc['sku'] ?? '',
-            'name' => $assoc['name'] ?? '',
-            'regular_price' => $assoc['regular_price'] ?? '',
-            'sale_price' => $assoc['sale_price'] ?? '',
-            'stock_quantity' => $assoc['stock_quantity'] ?? '',
-            'description' => $assoc['description'] ?? '',
-            'short_description' => $assoc['short_description'] ?? '',
-            'status' => $assoc['status'] ?? 'publish',
+            'type' => strtolower(self::get_mapped_value($assoc, ['type'], 'simple')),
+            'sku' => self::get_mapped_value($assoc, ['sku']),
+            'name' => self::get_mapped_value($assoc, ['name']),
+            'regular_price' => self::get_mapped_value($assoc, ['regularprice', 'regular_price']),
+            'sale_price' => self::get_mapped_value($assoc, ['saleprice', 'sale_price']),
+            'stock_quantity' => self::get_mapped_value($assoc, ['stockquantity', 'stock_quantity']),
+            'description' => self::get_mapped_value($assoc, ['description']),
+            'short_description' => self::get_mapped_value($assoc, ['shortdescription', 'short_description']),
+            'status' => $status,
+            'images' => self::get_mapped_value($assoc, ['images', 'image']),
+            'categories' => self::get_mapped_value($assoc, ['categories', 'category']),
             'row_hash' => hash('sha256', wp_json_encode($assoc)),
         ];
+    }
+
+    private static function normalize_header(string $header): string {
+        $header = strtolower(trim($header));
+        return preg_replace('/[^a-z0-9]+/', '', $header) ?: '';
+    }
+
+    private static function get_mapped_value(array $assoc, array $keys, string $default = ''): string {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $assoc)) {
+                return (string) $assoc[$key];
+            }
+        }
+        return $default;
+    }
+
+    private static function normalize_status(string $raw): string {
+        $v = strtolower(trim($raw));
+        if ($v === '') {
+            return 'publish';
+        }
+
+        if (in_array($v, ['1', 'yes', 'true', 'publish', 'published'], true)) {
+            return 'publish';
+        }
+
+        if (in_array($v, ['0', 'no', 'false', 'draft', 'unpublished'], true)) {
+            return 'draft';
+        }
+
+        return in_array($v, ['publish', 'draft', 'pending', 'private'], true) ? $v : 'publish';
+    }
+
+    private static function ensure_category_ids(string $categoriesRaw): array {
+        $ids = [];
+        $groups = array_filter(array_map('trim', explode(',', $categoriesRaw)));
+
+        foreach ($groups as $group) {
+            $parts = array_filter(array_map('trim', explode('>', $group)));
+            if (empty($parts)) {
+                continue;
+            }
+
+            $parentId = 0;
+            foreach ($parts as $name) {
+                $existing = term_exists($name, 'product_cat', $parentId);
+                if (!$existing) {
+                    $created = wp_insert_term($name, 'product_cat', ['parent' => $parentId]);
+                    if (is_wp_error($created)) {
+                        continue 2;
+                    }
+                    $termId = (int) $created['term_id'];
+                } else {
+                    $termId = is_array($existing) ? (int) $existing['term_id'] : (int) $existing;
+                }
+
+                $parentId = $termId;
+            }
+
+            if ($parentId > 0) {
+                $ids[] = $parentId;
+            }
+        }
+
+        return array_values(array_unique(array_filter($ids)));
+    }
+
+    private static function assign_first_image(int $productId, string $imagesRaw): void {
+        $urls = array_filter(array_map('trim', explode(',', $imagesRaw)));
+        if (empty($urls)) {
+            return;
+        }
+
+        $imageUrl = (string) reset($urls);
+        if (!filter_var($imageUrl, FILTER_VALIDATE_URL)) {
+            throw new RuntimeException('Invalid image URL: ' . $imageUrl);
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+
+        $attachmentId = media_sideload_image($imageUrl, $productId, null, 'id');
+        if (is_wp_error($attachmentId)) {
+            throw new RuntimeException('Image sideload failed: ' . $attachmentId->get_error_message());
+        }
+
+        set_post_thumbnail($productId, (int) $attachmentId);
     }
 
     private static function import_row(array $data, int $retryLimit): array {
@@ -286,12 +399,22 @@ class WCDI_Runner {
         $name = $data['name'] ?? '';
         $regularPrice = $data['regular_price'] ?? '';
 
+        if (($data['type'] ?? 'simple') !== 'simple') {
+            return [
+                'action' => 'validate',
+                'status' => 'failed',
+                'product_id' => 0,
+                'message' => 'Only simple product type is supported currently',
+                'rollback_payload' => [],
+            ];
+        }
+
         if ($sku === '' || $name === '' || $regularPrice === '') {
             return [
                 'action' => 'validate',
                 'status' => 'failed',
                 'product_id' => 0,
-                'message' => 'Missing required field(s): sku/name/regular_price',
+                'message' => 'Missing required field(s): SKU/Name/Regular price',
                 'rollback_payload' => [],
             ];
         }
@@ -364,6 +487,18 @@ class WCDI_Runner {
                 }
 
                 $savedId = $product->save();
+
+                if (!empty($data['categories'])) {
+                    $categoryIds = self::ensure_category_ids($data['categories']);
+                    if (!empty($categoryIds)) {
+                        wp_set_object_terms($savedId, $categoryIds, 'product_cat');
+                    }
+                }
+
+                if (!empty($data['images'])) {
+                    self::assign_first_image($savedId, $data['images']);
+                }
+
                 update_post_meta($savedId, '_wcdi_row_hash', $data['row_hash']);
 
                 if ($action === 'create') {

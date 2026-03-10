@@ -82,6 +82,9 @@ class WCDI_Admin {
         $runsTable = $wpdb->prefix . 'wcdi_runs';
         $runs = $wpdb->get_results("SELECT * FROM {$runsTable} ORDER BY id DESC LIMIT 10");
 
+        $nextRunTs = wp_next_scheduled('wcdi_daily_import_event');
+        $nextRunText = $nextRunTs ? wp_date('Y-m-d H:i:s T', (int) $nextRunTs) : 'Not scheduled';
+
         ?>
         <div class="wrap">
             <h1>Woo CSV Daily Importer</h1>
@@ -130,6 +133,8 @@ class WCDI_Admin {
                 <?php wp_nonce_field('wcdi_run_now_action'); ?>
                 <p><button class="button button-primary" name="wcdi_run_now" value="1" type="submit">Run Import Now</button></p>
             </form>
+
+            <p><strong>Next scheduled run:</strong> <?php echo esc_html($nextRunText); ?></p>
 
             <h2>Rollback</h2>
             <form method="post">
